@@ -1,0 +1,354 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning = FALSE,
+  erro=FALSE,
+  message = FALSE,
+  comment = "#>"
+)
+```
+
+# bigdata-sugarcane
+
+### Carregando os pacotes
+
+```{r}
+library("tidymodels")
+
+library("tidyverse")
+library("agricolae")
+library("gclus")
+library("cluster")
+library("vegan")
+library("lattice")
+library("nortest")
+library("rio")
+library("gganimate")
+library("corrplot")
+
+library(readxl)
+library(tidyverse)
+library(geobr)
+library(skimr)
+library(ISLR)
+library(modeldata)
+library(vip)
+library(ggpubr)
+library(rpart.plot)
+```
+
+# Análise iniciais, básicas
+
+### Carregando o banco de dados
+
+```{r}
+data_set <-  readxl::read_xlsx("data/Big_03.xlsx",
+                               na = "NA")
+glimpse(data_set)
+```
+
+## Preparando o banco de dados
+
+```{r}
+data_set[25795,names(data_set)=="B_2"] <- NA
+data_set[6,names(data_set)=="B_2"]
+data_set$B_2<-as.numeric(as.character(data_set$B_2))
+```
+
+
+```{r}
+data_set[18854,names(data_set)=="Cu_1"| names(data_set)=="Fe_1" | names(data_set)=="Mn_1" | names(data_set)=="Zn_1"]<-NA
+data_set[27272,names(data_set)=="Cu_1"| names(data_set)=="Fe_1" | names(data_set)=="Mn_1" | names(data_set)=="Zn_1"]<-NA
+data_set$Cu_1<-as.numeric(as.character(data_set$Cu_1))
+data_set$Fe_1<-as.numeric(as.character(data_set$Fe_1))
+data_set$Mn_1<-as.numeric(as.character(data_set$Mn_1))
+data_set$Zn_1<-as.numeric(as.character(data_set$Zn_1))
+
+UN<-as.character(data_set$UNIDADE)
+un<-as.character(data_set$unidade)
+UN[is.na(data_set$UNIDADE)]<-un[is.na(data_set$UNIDADE)]
+data_set$UNIDADE<-factor(UN)
+
+apv<-as.character(data_set$aplic_vinh)
+apv[apv=="Sim"]<-"SIM"
+data_set$aplic_vinh<-as.factor(apv)
+
+vari<-sub(" ","",data_set$variedade)
+vari<-sub("-","",vari)
+vari<-sub("VIVEIRO","Viveiro",vari)
+data_set$variedade<-as.factor(vari)
+
+cort<-sub("15M","15m",data_set$corte)
+data_set$corte<-as.factor(cort)
+```
+
+
+```{r}
+#Construindo o vetor numérico referente ao número de cortes
+CORTE<-1:length(data_set[,1])
+{CORTE[data_set$corte =="10ºC"] =10
+CORTE[data_set$corte =="11ºC"] =11
+CORTE[data_set$corte =="12m" ] =1
+CORTE[data_set$corte =="12mB"] =1.5
+CORTE[data_set$corte =="12mT"] =1.75
+CORTE[data_set$corte =="15m" ]=1
+CORTE[data_set$corte =="15mB" ]=1.5
+CORTE[data_set$corte =="18m" ]=1.5
+CORTE[data_set$corte =="18mB"] =1.5
+CORTE[data_set$corte =="2ºC" ]=2
+CORTE[data_set$corte =="2ºCB"] =2.5
+CORTE[data_set$corte =="2ºCT"] =2.75
+CORTE[data_set$corte =="3ºC"  ]=3
+CORTE[data_set$corte =="3ºCB" ]=3.5
+CORTE[data_set$corte =="4ºC"  ]=4
+CORTE[data_set$corte =="4ºCB" ]=4.5
+CORTE[data_set$corte =="5ºC"  ]=5
+CORTE[data_set$corte =="5ºCB" ]=5.5
+CORTE[data_set$corte =="6ºC"  ]=6
+CORTE[data_set$corte =="6ºCB" ]=6.5
+CORTE[data_set$corte =="7ºC" ]=7
+CORTE[data_set$corte =="7ºCB" ]=7.5
+CORTE[data_set$corte =="8ºC"  ]=8
+CORTE[data_set$corte =="8ºCB" ]=8.5
+CORTE[data_set$corte =="9ºC" ]=9
+CORTE[data_set$corte =="9ºCB"] =9.5
+CORTE[data_set$corte =="REF" ]=0}
+```
+
+```{r}
+data_set <- data_set %>% 
+  janitor::clean_names()
+```
+
+
+## Análise por pontos coincidentes 
+
+
+```{r}
+# xy<-paste(data_set$X,data_set$Y,sep="") # vetor de caracter único para cada xy
+# txy<-table(xy,data_set$ano)# Criamos a tabela de frência para cada coordenada
+# fxy<-apply(txy[,1:3],1,sum)==3#filtro somente as coordenadas com a soma igual a 3
+# lcoo3<-row.names(txy)[fxy]#Lista das coordenadas que apareceran nos três anos
+# length(xy)
+# length(lcoo3)
+# ff<-vector()
+# for( i in 1:length(lcoo3)){
+#   f<-which(xy==lcoo3[i])
+#   if(sum(data_set$ano[f]==c(2016,2017,2018))==3)  ff<-c(ff,f)
+# }
+# data_set$CORTE<-CORTE
+# dc<-data_set[ff,]
+# xyplot(X~Y| factor(ano),data=dc)
+
+# Filtro das variáveis
+# names(dc)
+dc <- data_set %>% 
+  select(tch_real,atr,corte,variedade,mes,ca_2,m_2,sb_2,idade_real,
+              ctc_2,p_resina_2,h_al_2,v_2,k_2,mg_2,mo_2,ph_cacl2_2,s_2,ano)
+
+# Separar o banco de dados por ano
+data_set16<-dc %>% filter(ano==2016) %>% drop_na() %>% select(-ano)
+data_set17<-dc %>% filter(ano==2017) %>% drop_na() %>% select(-ano)
+data_set18<-dc %>% filter(ano==2018) %>% drop_na() %>% select(-ano)
+
+# length(data_set16[,1]);length(data_set17[,1]);length(data_set18[,1]) # todos com o mesmo número de observações
+# dC<-data_set[-ff,]
+# length(data_set[,1]) == length(dc[,1]) + length(dC[,1])
+# 
+# bd<-data_set17
+# names(bd)
+```
+
+
+
+
+```{r}
+visdat::vis_miss(data_set16)
+visdat::vis_miss(data_set17)
+visdat::vis_miss(data_set18)
+```
+
+```{r}
+top_variedades <- data_set16 %>% 
+  group_by(variedade) %>% 
+  summarise(
+    n=n()
+  ) %>% arrange(desc(n)) %>% 
+  head(7) %>% 
+  pull(variedade) %>% as.character()
+
+
+data_set_ml <- data_set16 %>% 
+  mutate(
+    variedade = forcats::fct_other(variedade, keep = top_variedades, other_level = "outro")) 
+
+tch_initial_split <- initial_split(data_set_ml, prop = 0.70)
+```
+
+```{r}
+tch_train <- training(tch_initial_split)
+tch_train  %>% 
+  ggplot(aes(x=tch_real, y=..density..))+
+  geom_histogram(bins = 30, color="black",  fill="lightgray")+
+  geom_density(alpha=.05,fill="red")+
+  theme_bw() +
+  labs(x="tch", y = "Densidade")
+```
+
+
+```{r}
+tch_recipe <- recipe(tch_real ~ ., data = tch_train ) %>%  
+  step_normalize(all_numeric_predictors())  %>% 
+  #step_novel(all_nominal_predictors()) %>% 
+  step_zv(all_predictors())  #%>%
+  #step_naomit(c(Ts, Us)) %>% 
+  #step_impute_mean(c(Us,Ts)) %>% 
+  #step_poly(c(ms,ts), degree = 5)  
+  #step_dummy(all_nominal_predictors())
+bake(prep(tch_recipe), new_data = NULL)
+```
+
+
+
+```{r}
+tch_resamples <- vfold_cv(tch_train, v = 5)
+grid <- grid_regular(
+  penalty(range = c(-10, -2)),
+  levels = 5
+)
+```
+
+## Modelo Decision Tree
+
+```{r}
+tch_dt_model <- decision_tree(
+  cost_complexity = tune(),
+  tree_depth = tune(),
+  min_n = tune()
+)  %>%  
+  set_mode("regression")  %>%  
+  set_engine("rpart")
+```
+
+
+```{r}
+tch_dt_recipe <- tch_recipe
+
+tch_dt_wf <- workflow()   %>%  
+  add_model(tch_dt_model) %>% 
+  add_recipe(tch_dt_recipe)
+
+grid_dt <- grid_random(
+  cost_complexity(c(-20, -1)),
+  tree_depth(range = c(2, 30)),
+  min_n(range = c(2, 60)),
+  size = 2
+)
+```
+
+```{r}
+tch_dt_tune_grid <- tune_grid(
+  tch_dt_wf,
+  resamples = tch_resamples,
+  grid = grid_dt,
+  metrics = metric_set(rmse)
+)
+autoplot(tch_dt_tune_grid)
+```
+
+```{r}
+collect_metrics(tch_dt_tune_grid)
+
+tch_dt_best_params <- select_best(tch_dt_tune_grid, "rmse")
+tch_dt_wf <- tch_dt_wf %>% finalize_workflow(tch_dt_best_params)
+tch_dt_last_fit <- last_fit(tch_dt_wf, tch_initial_split)
+
+tch_test_preds <- bind_rows(
+  collect_predictions(tch_dt_last_fit)  %>%   mutate(modelo = "dt")
+)
+
+tch_test <- testing(tch_initial_split)
+
+tch_test_preds %>% 
+  ggplot(aes(x=.pred, y=tch_real)) +
+  geom_point()+
+  theme_bw() +
+  geom_smooth(method = "lm") +
+  stat_regline_equation(ggplot2::aes(
+  label =  paste(..eq.label.., ..rr.label.., sep = "*plain(\",\")~~"))) 
+```
+
+
+```{r}
+tch_dt_last_fit_model <- tch_dt_last_fit$.workflow[[1]]$fit$fit
+vip(tch_dt_last_fit_model)
+```
+
+## Modelo Random Forest
+
+```{r}
+tch_rf_model <- rand_forest(
+  min_n = tune(),
+  mtry = tune(),
+  trees = tune()
+)   %>%  
+  set_mode("regression")  %>% 
+  set_engine("randomForest")
+```
+
+```{r}
+tch_rf_wf <- workflow()   %>%  
+  add_model(tch_rf_model) %>%  
+  add_recipe(tch_recipe)
+```
+
+
+```{r}
+grid_rf <- grid_random(
+  min_n(range = c(2, 7)),
+  mtry(range = c(20,30)),
+  trees(range = c(50,70)),
+  size = 2
+)
+```
+
+
+```{r}
+tch_rf_tune_grid <- tune_grid(
+ tch_rf_wf,
+  resamples = tch_resamples,
+  grid = grid_rf,
+  metrics = metric_set(rmse)
+) 
+
+autoplot(tch_rf_tune_grid)
+```
+
+```{r}
+tch_rf_best_params <- select_best(tch_rf_tune_grid, "rmse")
+tch_rf_wf <- tch_rf_wf %>% finalize_workflow(tch_rf_best_params)
+tch_rf_last_fit <- last_fit(tch_rf_wf, tch_initial_split)
+
+tch_test_preds <- bind_rows(
+  collect_predictions(tch_rf_last_fit)  %>%   mutate(modelo = "rf")
+)
+```
+
+```{r}
+tch_test <- testing(tch_initial_split)
+
+tch_test_preds %>% 
+  ggplot(aes(x=.pred, y=tch_real)) +
+  geom_point()+
+  theme_bw() +
+  geom_smooth(method = "lm") +
+  stat_regline_equation(ggplot2::aes(
+  label =  paste(..eq.label.., ..rr.label.., sep = "*plain(\",\")~~"))) 
+```
+
