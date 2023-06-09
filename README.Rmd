@@ -183,6 +183,8 @@ visdat::vis_miss(data_set17)
 visdat::vis_miss(data_set18)
 ```
 
+# 2016 par aprevisão de 2017
+
 ```{r}
 data_set_ml <- data_set16
 tch_initial_split <- initial_split(data_set_ml, prop = 0.70)
@@ -367,6 +369,12 @@ tch_test_preds %>%
 ```
 
 ```{r}
+tch_rf_last_fit_model <- tch_rf_last_fit$.workflow[[1]]$fit$fit
+vip(tch_rf_last_fit_model)
+```
+
+
+```{r}
 final_wf <- tch_rf_last_fit %>%
   extract_workflow()
 final_wf
@@ -374,6 +382,214 @@ final_wf
 
 pred <- predict(final_wf, data_set17)
 obs <- data_set17 %>% select(tch_real)
+cbind(pred, obs) %>% #filter(.pred <=3.75) %>% 
+  ggplot(aes(x=.pred, y=tch_real)) +
+  geom_point()  +
+  geom_smooth(method = "lm")
+```
+
+
+# 2016 + 2017 para previsão de 2018
+
+# 2016 par aprevisão de 2017
+
+```{r}
+data_set_ml <- rbind(data_set16, data_set17)
+tch_initial_split <- initial_split(data_set_ml, prop = 0.70)
+```
+
+```{r}
+tch_train <- training(tch_initial_split)
+tch_train  %>% 
+  ggplot(aes(x=tch_real, y=..density..))+
+  geom_histogram(bins = 30, color="black",  fill="lightgray")+
+  geom_density(alpha=.05,fill="red")+
+  theme_bw() +
+  labs(x="tch", y = "Densidade")
+```
+
+
+```{r}
+tch_recipe <- recipe(tch_real ~ ., data = tch_train ) %>%  
+  step_normalize(all_numeric_predictors())  %>% 
+  #step_novel(all_nominal_predictors()) %>% 
+  step_zv(all_predictors())  #%>%
+  #step_naomit(c(Ts, Us)) %>% 
+  #step_impute_mean(c(Us,Ts)) %>% 
+  #step_poly(c(ms,ts), degree = 5)  
+  #step_dummy(all_nominal_predictors())
+bake(prep(tch_recipe), new_data = NULL)
+```
+
+
+
+```{r}
+tch_resamples <- vfold_cv(tch_train, v = 5)
+grid <- grid_regular(
+  penalty(range = c(-10, -2)),
+  levels = 5
+)
+```
+
+## Modelo Decision Tree
+
+```{r}
+tch_dt_model <- decision_tree(
+  cost_complexity = tune(),
+  tree_depth = tune(),
+  min_n = tune()
+)  %>%  
+  set_mode("regression")  %>%  
+  set_engine("rpart")
+```
+
+
+```{r}
+tch_dt_recipe <- tch_recipe
+
+tch_dt_wf <- workflow()   %>%  
+  add_model(tch_dt_model) %>% 
+  add_recipe(tch_dt_recipe)
+
+grid_dt <- grid_random(
+  cost_complexity(c(-20, -1)),
+  tree_depth(range = c(2, 30)),
+  min_n(range = c(2, 60)),
+  size = 2
+)
+```
+
+```{r}
+tch_dt_tune_grid <- tune_grid(
+  tch_dt_wf,
+  resamples = tch_resamples,
+  grid = grid_dt,
+  metrics = metric_set(rmse)
+)
+autoplot(tch_dt_tune_grid)
+```
+
+```{r}
+collect_metrics(tch_dt_tune_grid)
+
+tch_dt_best_params <- select_best(tch_dt_tune_grid, "rmse")
+tch_dt_wf <- tch_dt_wf %>% finalize_workflow(tch_dt_best_params)
+tch_dt_last_fit <- last_fit(tch_dt_wf, tch_initial_split)
+
+tch_test_preds <- bind_rows(
+  collect_predictions(tch_dt_last_fit)  %>%   mutate(modelo = "dt")
+)
+
+tch_test <- testing(tch_initial_split)
+
+tch_test_preds %>% 
+  ggplot(aes(x=.pred, y=tch_real)) +
+  geom_point()+
+  theme_bw() +
+  geom_smooth(method = "lm") +
+  stat_regline_equation(ggplot2::aes(
+  label =  paste(..eq.label.., ..rr.label.., sep = "*plain(\",\")~~"))) 
+```
+
+
+```{r}
+tch_dt_last_fit_model <- tch_dt_last_fit$.workflow[[1]]$fit$fit
+vip(tch_dt_last_fit_model)
+```
+
+
+```{r}
+final_wf <- tch_dt_last_fit %>%
+  extract_workflow()
+final_wf
+
+
+pred <- predict(final_wf, data_set17)
+obs <- data_set17 %>% select(tch_real)
+cbind(pred, obs) %>% #filter(.pred <=3.75) %>% 
+  ggplot(aes(x=.pred, y=tch_real)) +
+  geom_point()  +
+  geom_smooth(method = "lm")
+```
+
+
+
+## Modelo Random Forest
+
+```{r}
+tch_rf_model <- rand_forest(
+  min_n = tune(),
+  mtry = tune(),
+  trees = tune()
+)   %>%  
+  set_mode("regression")  %>% 
+  set_engine("randomForest")
+```
+
+```{r}
+tch_rf_wf <- workflow()   %>%  
+  add_model(tch_rf_model) %>%  
+  add_recipe(tch_recipe)
+```
+
+
+```{r}
+grid_rf <- grid_random(
+  min_n(range = c(2, 7)),
+  mtry(range = c(20,30)),
+  trees(range = c(50,70)),
+  size = 2
+)
+```
+
+
+```{r}
+tch_rf_tune_grid <- tune_grid(
+ tch_rf_wf,
+  resamples = tch_resamples,
+  grid = grid_rf,
+  metrics = metric_set(rmse)
+) 
+
+autoplot(tch_rf_tune_grid)
+```
+
+```{r}
+tch_rf_best_params <- select_best(tch_rf_tune_grid, "rmse")
+tch_rf_wf <- tch_rf_wf %>% finalize_workflow(tch_rf_best_params)
+tch_rf_last_fit <- last_fit(tch_rf_wf, tch_initial_split)
+
+tch_test_preds <- bind_rows(
+  collect_predictions(tch_rf_last_fit)  %>%   mutate(modelo = "rf")
+)
+```
+
+```{r}
+tch_test <- testing(tch_initial_split)
+
+tch_test_preds %>% 
+  ggplot(aes(x=.pred, y=tch_real)) +
+  geom_point()+
+  theme_bw() +
+  geom_smooth(method = "lm") +
+  stat_regline_equation(ggplot2::aes(
+  label =  paste(..eq.label.., ..rr.label.., sep = "*plain(\",\")~~"))) 
+```
+
+```{r}
+tch_rf_last_fit_model <- tch_rf_last_fit$.workflow[[1]]$fit$fit
+vip(tch_rf_last_fit_model)
+```
+
+
+```{r}
+final_wf <- tch_rf_last_fit %>%
+  extract_workflow()
+final_wf
+
+
+pred <- predict(final_wf, data_set18)
+obs <- data_set18 %>% select(tch_real)
 cbind(pred, obs) %>% #filter(.pred <=3.75) %>% 
   ggplot(aes(x=.pred, y=tch_real)) +
   geom_point()  +
