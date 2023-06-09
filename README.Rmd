@@ -148,9 +148,18 @@ data_set <- data_set %>%
 
 # Filtro das variáveis
 # names(dc)
+top_variedades <- data_set %>% 
+  group_by(variedade) %>% 
+  summarise(
+    n=n()
+  ) %>% arrange(desc(n)) %>% 
+  head(12) %>% 
+  pull(variedade) %>% as.character()
+
 dc <- data_set %>% 
   select(tch_real,atr,corte,variedade,mes,ca_2,m_2,sb_2,idade_real,
-              ctc_2,p_resina_2,h_al_2,v_2,k_2,mg_2,mo_2,ph_cacl2_2,s_2,ano)
+              ctc_2,p_resina_2,h_al_2,v_2,k_2,mg_2,mo_2,ph_cacl2_2,s_2,ano) %>%   mutate(
+    variedade = forcats::fct_other(variedade, keep = top_variedades, other_level = "outro")) 
 
 # Separar o banco de dados por ano
 data_set16<-dc %>% filter(ano==2016) %>% drop_na() %>% select(-ano)
@@ -175,19 +184,7 @@ visdat::vis_miss(data_set18)
 ```
 
 ```{r}
-top_variedades <- data_set16 %>% 
-  group_by(variedade) %>% 
-  summarise(
-    n=n()
-  ) %>% arrange(desc(n)) %>% 
-  head(7) %>% 
-  pull(variedade) %>% as.character()
-
-
-data_set_ml <- data_set16 %>% 
-  mutate(
-    variedade = forcats::fct_other(variedade, keep = top_variedades, other_level = "outro")) 
-
+data_set_ml <- data_set16
 tch_initial_split <- initial_split(data_set_ml, prop = 0.70)
 ```
 
@@ -290,6 +287,23 @@ tch_dt_last_fit_model <- tch_dt_last_fit$.workflow[[1]]$fit$fit
 vip(tch_dt_last_fit_model)
 ```
 
+
+```{r}
+final_wf <- tch_dt_last_fit %>%
+  extract_workflow()
+final_wf
+
+
+pred <- predict(final_wf, data_set17)
+obs <- data_set17 %>% select(tch_real)
+cbind(pred, obs) %>% #filter(.pred <=3.75) %>% 
+  ggplot(aes(x=.pred, y=tch_real)) +
+  geom_point()  +
+  geom_smooth(method = "lm")
+```
+
+
+
 ## Modelo Random Forest
 
 ```{r}
@@ -352,3 +366,16 @@ tch_test_preds %>%
   label =  paste(..eq.label.., ..rr.label.., sep = "*plain(\",\")~~"))) 
 ```
 
+```{r}
+final_wf <- tch_rf_last_fit %>%
+  extract_workflow()
+final_wf
+
+
+pred <- predict(final_wf, data_set17)
+obs <- data_set17 %>% select(tch_real)
+cbind(pred, obs) %>% #filter(.pred <=3.75) %>% 
+  ggplot(aes(x=.pred, y=tch_real)) +
+  geom_point()  +
+  geom_smooth(method = "lm")
+```
